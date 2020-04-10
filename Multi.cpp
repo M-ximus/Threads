@@ -5,14 +5,17 @@
 #include <limits.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <sys/sysinfo.h>
 
 const double glob_start = 1;
 const double glob_end = 32;
-const double step = 0.00000001;
+const double glob_step = 0.00000001;
 
 enum errors
 {
-    E_ERROR,
+    E_ERROR = -1,
+    E_CACHE_INFO = -2,
+    E_BADARGS = -3,
 };
 
 struct thread_info
@@ -34,6 +37,9 @@ double func(double x);
 long int give_num(const char* str_num);
 void* integral_thread(void* info);
 int cache_line_size();
+void* alloc_thread_info(size_t num_threads, size_t* size);
+int prepare_threads(void* info, size_t info_size, int num_thr, double start, double end, double step);
+int prepare_parasites(void* info, size_t info_size, int num_parasites, double start, double end, double step);
 
 int main(int argc, char* argv[])
 {
@@ -47,42 +53,46 @@ int main(int argc, char* argv[])
     if (num_thr <= 0)
         exit(EXIT_FAILURE);
 
-    int line_size = cache_line_size();
-    if (line_size <= 0)
-    {
-        perror("Bad cache coherency\n");
-        exit(EXIT_FAILURE);
-    }
+    int num_cpus = get_nprocs();
+    int num_parasites = 0;
+    if (num_cpus > num_thr)
+        num_parasites = num_cpus - num_thr;
 
-    size_t info_size = sizeof(thread_info);
-    if (info_size <= line_size)
-        info_size = 2 * line_size; // free line if struct will consist 2 lines
-    else
-        info_size = (info_size / line_size + 1 + 1) * line_size; // free line
-
+    size_t info_size = 0;
     errno = 0;
-    void* arr_info = malloc(num_thr * info_size);
+    void* arr_info = alloc_thread_info(num_thr + num_parasites, &info_size);
     if (arr_info == NULL)
     {
-        perror("Bad info alloc\n");
+        perror("Bad info allloc\n");
         exit(EXIT_FAILURE);
     }
 
     errno = 0;
-    pthread_t* arr_thread = (pthread_t*) calloc(num_thr, sizeof(pthread_t));
+    pthread_t* arr_thread = (pthread_t*) calloc(num_thr + num_parasites, sizeof(pthread_t));
     if (arr_thread == NULL)
     {
         perror("Bad thread alloc\n");
         exit(EXIT_FAILURE);
     }
 
-    double diap_step = (glob_end - glob_start) / num_thr;
-
-    for (long int i = 0; i < num_thr; i++)
+    int ret = prepare_threads(arr_info, info_size,
+        num_thr, glob_start, glob_end, glob_step);
+    if (ret < 0)
     {
-        ((thread_info*)(arr_info + i * info_size))->start = glob_start + diap_step * i;
-        ((thread_info*)(arr_info + i * info_size))->end = glob_start + diap_step * (i + 1);
-        ((thread_info*)(arr_info + i * info_size))->delt = step;
+        perror("Prepare calc threads error\n");
+        exit(EXIT_FAILURE);
+    }
+
+    ret = prepare_parasites(arr_info + num_thr * info_size, info_size,
+        num_parasites, glob_start, ((glob_end - glob_start) / num_thr), glob_step);
+    if (ret < 0)
+    {
+        perror("Prepare calc threads error\n");
+        exit(EXIT_FAILURE);
+    }
+
+    for (long int i = 0; i < num_thr + num_parasites; i++)
+    {
         int ret = pthread_create(arr_thread + i, NULL, integral_thread, (arr_info + i * info_size));
         if (ret < 0)
         {
@@ -110,6 +120,62 @@ int main(int argc, char* argv[])
     printf("%lg\n", result);
 
     return 0;
+}
+
+int prepare_threads(void* info, size_t info_size, int num_thr, double start, double end, double step)
+{
+    if (info == NULL || num_thr < 0 || start == NAN || end == NAN || step == NAN)
+        return E_BADARGS;
+
+    double diap_step = (end - start) / num_thr;
+
+    for (int i = 0; i < num_thr; i++)
+    {
+        ((thread_info*)(info + i * info_size))->start = start + diap_step * i;
+        ((thread_info*)(info + i * info_size))->end = start + diap_step * (i + 1);
+        ((thread_info*)(info + i * info_size))->delt = step;
+    }
+
+    return 0;
+}
+
+int prepare_parasites(void* info, size_t info_size, int num_parasites, double start, double end, double step)
+{
+    if (info == NULL || num_parasites < 0 || start == NAN || end == NAN || step == NAN)
+        return E_BADARGS;
+
+    for (int i = 0; i < num_parasites; i++)
+    {
+        ((thread_info*)(info + i * info_size))->start = start;
+        ((thread_info*)(info + i * info_size))->end = end;
+        ((thread_info*)(info + i * info_size))->delt = step;
+    }
+
+    return 0;
+}
+
+void* alloc_thread_info(size_t num_threads, size_t* size)
+{
+    if (size == NULL)
+        return NULL;
+
+    int line_size = cache_line_size();
+    if (line_size <= 0)
+    {
+        perror("Bad cache coherency\n");
+        return NULL;
+    }
+
+    size_t info_size = sizeof(thread_info);
+    if (info_size <= line_size)
+        info_size = 2 * line_size; // free line if struct will consist 2 lines
+    else
+        info_size = (info_size / line_size + 1 + 1) * line_size; // free line
+
+    *size = info_size;
+
+    errno = 0;
+    return malloc(num_threads * info_size);
 }
 
 void* integral_thread(void* info)
