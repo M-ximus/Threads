@@ -1,7 +1,7 @@
 all: integr.out collect.sh
 
 integr.out: Multi.cpp
-	gcc -pthread -o $@ $<
+	g++ -pthread -o $@ $<
 
 collect.sh:
 	chmod +x collect.sh
