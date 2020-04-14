@@ -8,8 +8,8 @@
 #include <sys/sysinfo.h>
 
 const double glob_start = 1;
-const double glob_end = 32;
-const double glob_step = 0.00000001;
+const double glob_end = 33;
+const double glob_step = 0.0000002;
 
 enum errors
 {
@@ -84,7 +84,7 @@ int main(int argc, char* argv[])
     }
 
     ret = prepare_parasites(arr_info + num_thr * info_size, info_size,
-        num_parasites, glob_start, ((glob_end - glob_start) / num_thr), glob_step);
+        num_parasites, glob_start, glob_start + ((glob_end - glob_start) / num_thr), glob_step);
     if (ret < 0)
     {
         perror("Prepare calc threads error\n");
@@ -114,7 +114,9 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         }
 
-        result += ((thread_info*)(arr_info + i * info_size))->sum;
+        //if (i < num_thr)
+            result += ((thread_info*)(arr_info + i * info_size))->sum;
+        //printf("%lg\n", ((thread_info*)(arr_info + i * info_size))->sum);
     }
 
     printf("%lg\n", result);
@@ -134,21 +136,23 @@ int prepare_threads(void* info, size_t info_size, int num_thr, double start, dou
         ((thread_info*)(info + i * info_size))->start = start + diap_step * i;
         ((thread_info*)(info + i * info_size))->end = start + diap_step * (i + 1);
         ((thread_info*)(info + i * info_size))->delt = step;
+
+        //printf("%lg\n", start + diap_step * (i + 1));
     }
 
     return 0;
 }
 
-int prepare_parasites(void* info, size_t info_size, int num_parasites, double start, double end, double step)
+int prepare_parasites(void* info, size_t info_size, int num_parasites, double par_start, double par_end, double par_step)
 {
-    if (info == NULL || num_parasites < 0 || start == NAN || end == NAN || step == NAN)
+    if (info == NULL || num_parasites < 0 || par_start == NAN || par_end == NAN || par_step == NAN)
         return E_BADARGS;
 
     for (int i = 0; i < num_parasites; i++)
     {
-        ((thread_info*)(info + i * info_size))->start = start;
-        ((thread_info*)(info + i * info_size))->end = end;
-        ((thread_info*)(info + i * info_size))->delt = step;
+        ((thread_info*)(info + i * info_size))->start = par_start;
+        ((thread_info*)(info + i * info_size))->end = par_end;
+        ((thread_info*)(info + i * info_size))->delt = par_step;
     }
 
     return 0;
