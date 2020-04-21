@@ -10,7 +10,7 @@
 
 const double glob_start = 1;
 const double glob_end = 33;
-const double glob_step = 0.0000002;
+const double glob_step = 0.00000002;
 
 enum errors
 {
