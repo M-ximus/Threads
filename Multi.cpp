@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -24,6 +25,7 @@ struct thread_info
     double start;
     double end;
     double delt;
+    int num_cpu;
 };
 
 struct CPU_info
@@ -93,6 +95,9 @@ int main(int argc, char* argv[])
 
     for (long int i = 0; i < num_thr + num_parasites; i++)
     {
+        if (num_parasites > 0)
+            ((thread_info*)(arr_info + i * info_size))->num_cpu = i;
+
         int ret = pthread_create(arr_thread + i, NULL, integral_thread, (arr_info + i * info_size));
         if (ret < 0)
         {
@@ -136,6 +141,7 @@ int prepare_threads(void* info, size_t info_size, int num_thr, double start, dou
         ((thread_info*)(info + i * info_size))->start = start + diap_step * i;
         ((thread_info*)(info + i * info_size))->end = start + diap_step * (i + 1);
         ((thread_info*)(info + i * info_size))->delt = step;
+        ((thread_info*)(info + i * info_size))->num_cpu = -1;
 
         //printf("%lg\n", start + diap_step * (i + 1));
     }
@@ -153,6 +159,7 @@ int prepare_parasites(void* info, size_t info_size, int num_parasites, double pa
         ((thread_info*)(info + i * info_size))->start = par_start;
         ((thread_info*)(info + i * info_size))->end = par_end;
         ((thread_info*)(info + i * info_size))->delt = par_step;
+        ((thread_info*)(info + i * info_size))->num_cpu = -1;
     }
 
     return 0;
@@ -186,6 +193,25 @@ void* integral_thread(void* info)
 {
     if (info == NULL)
         exit(EXIT_FAILURE);
+
+    cpu_set_t cpu;
+    pthread_t thread = pthread_self();
+    int num_cpu = ((thread_info*)info)->num_cpu;
+
+    if (num_cpu > 0)
+    {
+        CPU_ZERO(&cpu);
+        CPU_SET(num_cpu, &cpu);
+
+        errno = 0;
+        int ret = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpu);
+        if (ret < 0)
+        {
+            perror("Bad cpu attach!\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+
 
     double delta = ((thread_info*)info)->delt;
     double end = ((thread_info*)(info))->end;
